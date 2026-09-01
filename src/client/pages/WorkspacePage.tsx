@@ -24,11 +24,18 @@ type Run = {
 };
 
 type Meta = {
-  workspaces: Array<{ path: string; label: string; name: string }>;
+  allowAnyPath: boolean;
+  hasWorkspaceAllowlist: boolean;
   defaultModel: string;
   models: Array<{ id: string; label: string }>;
   settings: { hasApiKey: boolean; apiKeyMasked: string };
 };
+
+function projectLabel(cwd: string, workspaceLabel: string | null): string {
+  if (workspaceLabel) return workspaceLabel;
+  const parts = cwd.split('/').filter(Boolean);
+  return parts[parts.length - 1] || cwd;
+}
 
 export function WorkspacePage() {
   const { user, logout } = useAuth();
@@ -55,10 +62,9 @@ export function WorkspacePage() {
     ]);
     setMeta(m);
     setSessions(list);
-    if (m.workspaces[0] && !newCwd) setNewCwd(m.workspaces[0].path);
     if (m.defaultModel && !newModel) setNewModel(m.defaultModel);
     if (!selectedId && list[0]) setSelectedId(list[0].id);
-  }, [newCwd, newModel, selectedId]);
+  }, [newModel, selectedId]);
 
   const loadDetail = useCallback(async (id: string) => {
     const data = await api<{ session: Session; runs: Run[] }>(`/api/agents/sessions/${id}`);
@@ -80,12 +86,13 @@ export function WorkspacePage() {
     e.preventDefault();
     setBusy(true);
     try {
-      const ws = meta?.workspaces.find((w) => w.path === newCwd);
+      const cwd = newCwd.trim();
+      const label = projectLabel(cwd, null);
       const result = await api<{ session: Session; run?: Run }>('/api/agents/sessions', {
         method: 'POST',
         json: {
-          cwd: newCwd,
-          workspaceLabel: ws?.name,
+          cwd,
+          workspaceLabel: label,
           model: newModel,
           prompt: newPrompt || undefined,
         },
@@ -154,7 +161,7 @@ export function WorkspacePage() {
               onClick={() => setSelectedId(s.id)}
             >
               <span className="session-title">{s.title}</span>
-              <span className="session-meta">{s.cwd.split('/').slice(-2).join('/')}</span>
+              <span className="session-meta">{projectLabel(s.cwd, s.workspaceLabel)}</span>
               <span className={`status-dot ${s.status}`} />
             </button>
           ))}
@@ -173,16 +180,16 @@ export function WorkspacePage() {
 
       <main className="main">
         <header className="main-head">
-          <div>
-            <h1>{selected?.title || 'Session wählen'}</h1>
-            {selected && <p className="cwd-badge">{selected.cwd}</p>}
-          </div>
-          <div className="head-actions">
+          <div className="main-head-inner">
+            <h1>{selected?.title || 'Session'}</h1>
+            {selected && (
+              <span className="cwd-badge">{projectLabel(selected.cwd, selected.workspaceLabel)}</span>
+            )}
             {selected && <span className={`pill status-${selected.status}`}>{selected.status}</span>}
-            <button type="button" className="theme-toggle" onClick={toggle} aria-label="Theme">
-              {theme === 'dark' ? '☀' : '☾'}
-            </button>
           </div>
+          <button type="button" className="theme-toggle" onClick={toggle} aria-label="Theme">
+            {theme === 'dark' ? '☀' : '☾'}
+          </button>
         </header>
 
         {noKey && (
@@ -205,10 +212,11 @@ export function WorkspacePage() {
             runs
               .slice()
               .reverse()
-              .map((run) => (
+              .map((run, i) => (
                 <RunThread
                   key={run.id}
                   run={run}
+                  isFirst={i === 0}
                   live={run.id === liveRunId && (run.status === 'running' || run.status === 'queued')}
                 />
               ))
@@ -218,32 +226,33 @@ export function WorkspacePage() {
         {selected && (
           <footer className="composer">
             <form onSubmit={onSend} className="composer-form">
-              <textarea
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                placeholder="Beschreibe die Aufgabe… (Enter = Senden, Shift+Enter = Zeilenumbruch)"
-                rows={3}
-                disabled={busy || selected.status === 'running' || noKey}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    e.currentTarget.form?.requestSubmit();
-                  }
-                }}
-              />
-              <div className="composer-bar">
+              <div className="composer-box">
+                <textarea
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  placeholder="Ask Cursor…"
+                  rows={1}
+                  disabled={busy || selected.status === 'running' || noKey}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      e.currentTarget.form?.requestSubmit();
+                    }
+                  }}
+                />
                 <div className="composer-actions">
                   {selected.status === 'running' && liveRunId && (
-                    <button type="button" className="btn btn-danger" onClick={() => void onCancel()} disabled={busy}>
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => void onCancel()} disabled={busy}>
                       Stop
                     </button>
                   )}
                   <button
                     type="submit"
-                    className="btn btn-primary"
+                    className="btn btn-primary btn-sm"
                     disabled={busy || !prompt.trim() || selected.status === 'running' || noKey}
+                    aria-label="Senden"
                   >
-                    Senden
+                    ↑
                   </button>
                 </div>
               </div>
@@ -258,14 +267,23 @@ export function WorkspacePage() {
             <h2>Neue Session</h2>
             <form onSubmit={onCreate}>
               <label>
-                Workspace
-                <select value={newCwd} onChange={(e) => setNewCwd(e.target.value)} required>
-                  {(meta?.workspaces || []).map((w) => (
-                    <option key={w.path} value={w.path}>
-                      {w.label}
-                    </option>
-                  ))}
-                </select>
+                Projekt-Pfad
+                <input
+                  type="text"
+                  value={newCwd}
+                  onChange={(e) => setNewCwd(e.target.value)}
+                  placeholder="/pfad/zum/projekt"
+                  required
+                  spellCheck={false}
+                />
+                <span className="field-hint">
+                  Absoluter Pfad auf dem Server, in dem der Agent arbeiten soll.
+                  {meta?.hasWorkspaceAllowlist && !meta.allowAnyPath
+                    ? ' Nur erlaubte Pfade aus WORKSPACES.'
+                    : meta?.allowAnyPath
+                      ? ' Beliebiger existierender Pfad erlaubt.'
+                      : ' WORKSPACES oder AGENT_ALLOW_ANY_PATH in .env konfigurieren.'}
+                </span>
               </label>
               <label>
                 Modell

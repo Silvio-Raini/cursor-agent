@@ -18,7 +18,7 @@ const schema = z.object({
   BOOTSTRAP_USERNAME: z.string().min(3).default('admin'),
   BOOTSTRAP_PASSWORD: z.string().min(8).default('ChangeMeNow!'),
   CURSOR_API_KEY: z.string().default(''),
-  WORKSPACES: z.string().default('/opt/apps,/opt/server-panel'),
+  WORKSPACES: z.string().default(''),
   AGENT_MAX_CONCURRENT: z.coerce.number().int().positive().default(2),
   AGENT_MAX_RUN_MS: z.coerce.number().int().positive().default(7_200_000),
   AGENT_DEFAULT_MODEL: z.string().default('composer-2.5'),

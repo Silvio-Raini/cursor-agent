@@ -6,12 +6,8 @@ function formatUsage(usage: Record<string, unknown>): string {
   const parts: string[] = [];
   const inTok = usage.inputTokens ?? usage.input_tokens;
   const outTok = usage.outputTokens ?? usage.output_tokens;
-  const total = usage.totalTokens ?? usage.total_tokens;
-  const reasoning = usage.reasoningTokens ?? usage.reasoning_tokens;
-  if (inTok !== undefined) parts.push(`Eingabe: ${inTok}`);
-  if (outTok !== undefined) parts.push(`Ausgabe: ${outTok}`);
-  if (reasoning !== undefined) parts.push(`Reasoning: ${reasoning}`);
-  if (total !== undefined) parts.push(`Gesamt: ${total}`);
+  if (inTok !== undefined) parts.push(`${inTok} in`);
+  if (outTok !== undefined) parts.push(`${outTok} out`);
   return parts.length > 0 ? parts.join(' · ') : JSON.stringify(usage);
 }
 
@@ -20,30 +16,29 @@ function JsonBlock({ value }: { value: unknown }) {
   return <pre className="json-block">{text}</pre>;
 }
 
-function ToolCard({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
+function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
   const [open, setOpen] = useState(false);
-  const statusClass =
-    item.status === 'completed' ? 'ok' : item.status === 'error' ? 'err' : 'run';
+  const done = item.status === 'completed';
+  const failed = item.status === 'error';
 
   return (
-    <div className={`tool-card status-${statusClass}`}>
-      <button type="button" className="tool-head" onClick={() => setOpen((v) => !v)}>
-        <span className="tool-icon">⚡</span>
-        <span className="tool-name">{item.name}</span>
-        <span className={`tool-status ${statusClass}`}>{item.status}</span>
-        <span className="tool-chevron">{open ? '▾' : '▸'}</span>
+    <div className={`tool-row${open ? ' open' : ''}${failed ? ' err' : done ? ' ok' : ''}`}>
+      <button type="button" className="tool-row-head" onClick={() => setOpen((v) => !v)}>
+        <span className="tool-row-chevron">{open ? '▾' : '▸'}</span>
+        <span className="tool-row-name">{item.name}</span>
+        <span className="tool-row-status">{item.status}</span>
       </button>
       {open && (
-        <div className="tool-body">
+        <div className="tool-row-body">
           {item.input !== undefined && (
-            <div>
-              <strong>Input</strong>
+            <div className="tool-row-section">
+              <span className="tool-row-label">Input</span>
               <JsonBlock value={item.input} />
             </div>
           )}
           {item.result !== undefined && (
-            <div>
-              <strong>Result</strong>
+            <div className="tool-row-section">
+              <span className="tool-row-label">Output</span>
               <JsonBlock value={item.result} />
             </div>
           )}
@@ -53,20 +48,21 @@ function ToolCard({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
   );
 }
 
-function ThinkingBlock({ item }: { item: Extract<TimelineItem, { kind: 'thinking' }> }) {
+function ThinkingRow({ item }: { item: Extract<TimelineItem, { kind: 'thinking' }> }) {
   const [open, setOpen] = useState(false);
+  const secs = item.durationMs !== undefined ? Math.round(item.durationMs / 1000) : null;
+
   return (
-    <div className="thinking-block">
-      <button type="button" className="thinking-head" onClick={() => setOpen((v) => !v)}>
-        <span>💭 Denken</span>
-        {item.durationMs !== undefined && (
-          <span className="thinking-ms">{Math.round(item.durationMs / 1000)}s</span>
-        )}
-        <span className="tool-chevron">{open ? '▾' : '▸'}</span>
+    <div className={`thinking-row${open ? ' open' : ''}`}>
+      <button type="button" className="thinking-row-head" onClick={() => setOpen((v) => !v)}>
+        <span className="tool-row-chevron">{open ? '▾' : '▸'}</span>
+        <span>
+          {secs !== null ? `Thought for ${secs}s` : 'Thinking'}
+        </span>
       </button>
-      {open && (
+      {open && item.text && (
         <div
-          className="thinking-body md"
+          className="thinking-row-body md"
           dangerouslySetInnerHTML={{ __html: renderMarkdown(item.text) }}
         />
       )}
@@ -76,7 +72,7 @@ function ThinkingBlock({ item }: { item: Extract<TimelineItem, { kind: 'thinking
 
 export function ChatTimeline({ items }: { items: TimelineItem[] }) {
   if (items.length === 0) {
-    return <p className="timeline-empty">Warte auf Antwort…</p>;
+    return <p className="timeline-empty">…</p>;
   }
 
   return (
@@ -85,46 +81,43 @@ export function ChatTimeline({ items }: { items: TimelineItem[] }) {
         switch (item.kind) {
           case 'assistant':
             return (
-              <div key={item.id} className="message assistant">
-                <span className="msg-label">Agent</span>
-                <div
-                  className="msg-body md"
-                  dangerouslySetInnerHTML={{ __html: renderMarkdown(item.text) }}
-                />
-              </div>
+              <div
+                key={item.id}
+                className="agent-block md"
+                dangerouslySetInnerHTML={{ __html: renderMarkdown(item.text) }}
+              />
             );
           case 'thinking':
-            return <ThinkingBlock key={item.id} item={item} />;
+            return <ThinkingRow key={item.id} item={item} />;
           case 'tool':
-            return <ToolCard key={item.id} item={item} />;
+            return <ToolRow key={item.id} item={item} />;
           case 'task':
             return (
-              <div key={item.id} className="task-chip">
-                📋 {item.text || 'Task'}
-                {item.status ? ` · ${item.status}` : ''}
+              <div key={item.id} className="meta-line">
+                Task {item.text || ''}{item.status ? ` · ${item.status}` : ''}
               </div>
             );
           case 'status':
             return (
-              <div key={item.id} className="status-chip">
+              <div key={item.id} className="meta-line muted">
                 {item.text || item.status}
               </div>
             );
           case 'usage':
             return (
-              <div key={item.id} className="usage-chip">
-                📊 {formatUsage(item.usage)}
+              <div key={item.id} className="meta-line muted mono">
+                {formatUsage(item.usage)}
               </div>
             );
           case 'system':
             return (
-              <div key={item.id} className="system-chip">
+              <div key={item.id} className="meta-line muted">
                 {item.text || 'System'}
               </div>
             );
           case 'error':
             return (
-              <p key={item.id} className="form-error">
+              <p key={item.id} className="chat-error">
                 {item.text}
               </p>
             );

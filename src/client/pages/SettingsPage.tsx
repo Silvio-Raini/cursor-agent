@@ -7,7 +7,8 @@ type Settings = {
   hasApiKey: boolean;
   apiKeyMasked: string;
   defaultModel: string;
-  workspaces: string[];
+  allowAnyPath: boolean;
+  hasWorkspaceAllowlist: boolean;
   publicUrl: string;
 };
 
@@ -62,8 +63,14 @@ export function SettingsPage() {
         <dl className="settings-dl">
           <dt>Status</dt>
           <dd>{settings?.hasApiKey ? `Konfiguriert (${settings.apiKeyMasked})` : 'Nicht gesetzt'}</dd>
-          <dt>Workspaces</dt>
-          <dd>{settings?.workspaces.join(', ')}</dd>
+          <dt>Pfad-Policy</dt>
+          <dd>
+            {settings?.allowAnyPath
+              ? 'Beliebige Pfade erlaubt'
+              : settings?.hasWorkspaceAllowlist
+                ? 'Allowlist (WORKSPACES)'
+                : 'Nicht konfiguriert'}
+          </dd>
           <dt>Modell</dt>
           <dd>{settings?.defaultModel}</dd>
         </dl>
@@ -87,9 +94,9 @@ export function SettingsPage() {
 
         <section className="install-hint">
           <h2>Installation (Self-Hosted)</h2>
-          <pre>{`git clone … /opt/apps/cursor
-cd /opt/apps/cursor && npm install
-cp .env.example .env   # SESSION_SECRET, CURSOR_API_KEY, WORKSPACES
+          <pre>{`git clone https://github.com/Silvio-Raini/cursor-agent
+cd cursor-agent && npm install
+cp .env.example .env   # SESSION_SECRET, API-Key, Pfad-Policy
 npm run build && npm start`}</pre>
         </section>
       </div>

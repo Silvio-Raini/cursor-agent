@@ -9,7 +9,7 @@ type Run = {
   errorMessage: string | null;
 };
 
-export function RunThread({ run, live }: { run: Run; live: boolean }) {
+export function RunThread({ run, live, isFirst }: { run: Run; live: boolean; isFirst?: boolean }) {
   const { timeline } = useRunTimeline(run.id, live);
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -18,14 +18,14 @@ export function RunThread({ run, live }: { run: Run; live: boolean }) {
   }, [timeline, live]);
 
   return (
-    <div className="message-block">
-      <div className="message user">
-        <span className="msg-label">Du</span>
-        <div className="msg-body">{run.prompt}</div>
+    <section className="chat-turn">
+      {!isFirst && <div className="turn-divider" />}
+      <div className="user-block">
+        <div className="user-text">{run.prompt}</div>
       </div>
       <ChatTimeline items={timeline} />
-      {run.errorMessage && <p className="form-error">{run.errorMessage}</p>}
+      {run.errorMessage && <p className="chat-error">{run.errorMessage}</p>}
       <div ref={endRef} />
-    </div>
+    </section>
   );
 }

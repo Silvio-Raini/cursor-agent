@@ -20,6 +20,16 @@ async function main(): Promise<void> {
     bodyLimit: 1_048_576,
   });
 
+  if (isProd && env.PUBLIC_URL.startsWith('https://')) {
+    const publicOrigin = new URL(env.PUBLIC_URL).origin;
+    app.addHook('onRequest', async (req, reply) => {
+      const proto = req.headers['x-forwarded-proto'];
+      if (proto && proto !== 'https') {
+        return reply.redirect(`${publicOrigin}${req.url}`, 301);
+      }
+    });
+  }
+
   await app.register(helmet, {
     contentSecurityPolicy: {
       directives: {

@@ -14,6 +14,13 @@ export function assertAllowedCwd(cwdInput: string): string {
   if (env.AGENT_ALLOW_ANY_PATH) return cwd;
 
   const roots = workspaceRoots().map((r) => path.resolve(r));
+  if (roots.length === 0) {
+    throw new AppError(
+      'CONFIG_ERROR',
+      'Keine erlaubten Projekt-Pfade konfiguriert. Setze WORKSPACES oder AGENT_ALLOW_ANY_PATH=true.',
+      503,
+    );
+  }
   const allowed = roots.some((root) => cwd === root || cwd.startsWith(`${root}${path.sep}`));
   if (!allowed) {
     throw new AppError(
@@ -28,17 +35,10 @@ export function assertAllowedCwd(cwdInput: string): string {
   return cwd;
 }
 
-export function listWorkspaces(): Array<{ path: string; label: string; name: string }> {
-  return workspaceRoots().map((root) => {
-    const resolved = path.resolve(root);
-    const name = path.basename(resolved) || resolved;
-    return { path: resolved, label: resolved, name };
-  });
-}
-
 export function agentsMeta() {
   return {
-    workspaces: listWorkspaces(),
+    allowAnyPath: env.AGENT_ALLOW_ANY_PATH,
+    hasWorkspaceAllowlist: workspaceRoots().length > 0,
     defaultModel: env.AGENT_DEFAULT_MODEL,
     maxConcurrent: env.AGENT_MAX_CONCURRENT,
     models: [

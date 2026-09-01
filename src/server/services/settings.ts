@@ -27,7 +27,8 @@ export function getSettingsPublic() {
     apiKeyMasked: maskApiKey(key),
     defaultModel: env.AGENT_DEFAULT_MODEL,
     maxConcurrent: env.AGENT_MAX_CONCURRENT,
-    workspaces: env.WORKSPACES.split(',').map((s) => s.trim()).filter(Boolean),
+    allowAnyPath: env.AGENT_ALLOW_ANY_PATH,
+    hasWorkspaceAllowlist: env.WORKSPACES.split(',').some((s) => s.trim()),
     publicUrl: env.PUBLIC_URL,
   };
 }
