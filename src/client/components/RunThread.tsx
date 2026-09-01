@@ -23,7 +23,7 @@ export function RunThread({ run, live, isFirst }: { run: Run; live: boolean; isF
       <div className="user-block">
         <div className="user-text">{run.prompt}</div>
       </div>
-      <ChatTimeline items={timeline} />
+      <ChatTimeline items={timeline} live={live} />
       {run.errorMessage && <p className="chat-error">{run.errorMessage}</p>}
       <div ref={endRef} />
     </section>

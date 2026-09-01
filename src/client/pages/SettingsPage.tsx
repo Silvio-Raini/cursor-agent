@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
+import { DevShell } from '../components/DevShell';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 
@@ -25,10 +26,12 @@ export function SettingsPage() {
 
   if (user?.role !== 'admin') {
     return (
-      <div className="settings-page">
-        <p>Kein Zugriff.</p>
-        <Link to="/">Zurück</Link>
-      </div>
+      <DevShell title="Cursor Agent" subtitle="Einstellungen">
+        <div className="panel settings-panel">
+          <p>Kein Zugriff.</p>
+          <Link className="tools-link" to="/">← Zurück</Link>
+        </div>
+      </DevShell>
     );
   }
 
@@ -52,12 +55,15 @@ export function SettingsPage() {
   }
 
   return (
-    <div className="settings-page">
-      <div className="settings-card">
-        <Link to="/" className="back-link">
-          ← Workspace
-        </Link>
-        <h1>Einstellungen</h1>
+    <DevShell
+      title="Cursor Agent"
+      subtitle="Einstellungen"
+      actions={
+        <Link className="tools-link" to="/">← Workspace</Link>
+      }
+    >
+      <div className="panel settings-panel">
+        <h1>API & Konfiguration</h1>
         <p className="hint">Cursor API-Key von cursor.com/dashboard/integrations</p>
 
         <dl className="settings-dl">
@@ -87,19 +93,18 @@ export function SettingsPage() {
             />
           </label>
           {msg && <p className={msg.includes('gespeichert') ? 'form-ok' : 'form-error'}>{msg}</p>}
-          <button type="submit" className="btn btn-primary" disabled={busy || apiKey.length < 10}>
+          <button type="submit" className="tool-btn primary" disabled={busy || apiKey.length < 10}>
             Speichern
           </button>
         </form>
 
         <section className="install-hint">
-          <h2>Installation (Self-Hosted)</h2>
+          <h2>Self-Hosted</h2>
           <pre>{`git clone https://github.com/Silvio-Raini/cursor-agent
 cd cursor-agent && npm install
-cp .env.example .env   # SESSION_SECRET, API-Key, Pfad-Policy
-npm run build && npm start`}</pre>
+cp .env.example .env && npm run build && npm start`}</pre>
         </section>
       </div>
-    </div>
+    </DevShell>
   );
 }

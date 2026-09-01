@@ -6,6 +6,7 @@ import { agentsMeta } from '../services/scopes.js';
 import {
   cancelRun,
   createSession,
+  deleteSession,
   getRun,
   getSession,
   listRunEvents,
@@ -61,6 +62,14 @@ export async function registerAgentRoutes(app: FastifyInstance): Promise<void> {
     const body = z.object({ prompt: z.string().min(1).max(50_000) }).safeParse(req.body);
     if (!body.success) throw new AppError('VALIDATION_ERROR', 'Ungültige Eingabe.', 400);
     return { success: true, data: await sendPrompt(id, body.data.prompt, auth.user.id) };
+  });
+
+  app.delete('/api/agents/sessions/:id', async (req) => {
+    const auth = requireUser(req);
+    requireCsrf(req, auth);
+    const { id } = req.params as { id: string };
+    await deleteSession(id, auth.user.id);
+    return { success: true, data: { deleted: true } };
   });
 
   app.get('/api/agents/runs/:runId', async (req) => {

@@ -246,3 +246,15 @@ export async function cancelRun(runId: string, userId: number): Promise<RunRecor
   broadcastEvent(runId, { type: 'status', text: 'cancelled', timestamp: new Date().toISOString() });
   return getRun(runId, userId);
 }
+
+export async function deleteSession(sessionId: string, userId: number): Promise<void> {
+  getSession(sessionId, userId);
+  const db = getDb();
+  const activeRuns = db
+    .prepare(`SELECT id FROM agent_runs WHERE session_id = ? AND status IN ('queued','running')`)
+    .all(sessionId) as { id: string }[];
+  for (const row of activeRuns) {
+    await cancelRun(row.id, userId);
+  }
+  db.prepare('DELETE FROM agent_sessions WHERE id = ?').run(sessionId);
+}

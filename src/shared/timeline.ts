@@ -157,6 +157,75 @@ export function reduceEventsToTimeline(events: AgentStreamEvent[]): TimelineItem
   return items;
 }
 
+const WORK_KINDS = new Set(['thinking', 'tool', 'task', 'status', 'system', 'usage']);
+
+export type TimelineDisplaySegment =
+  | { type: 'work'; id: string; items: TimelineItem[]; durationMs: number }
+  | { type: 'assistant'; item: TimelineItem & { kind: 'assistant' } }
+  | { type: 'error'; item: TimelineItem & { kind: 'error' } };
+
+/** Schätzt Dauer aus Thinking-Events; Fallback pro Arbeitsschritt. */
+export function estimateWorkDurationMs(items: TimelineItem[]): number {
+  let ms = 0;
+  let steps = 0;
+  for (const item of items) {
+    if (item.kind === 'thinking') {
+      steps += 1;
+      if (item.durationMs) ms += item.durationMs;
+    } else if (item.kind === 'tool') {
+      steps += 1;
+    }
+  }
+  if (ms > 0) return ms;
+  if (steps > 0) return steps * 1200;
+  return items.length > 0 ? 800 : 0;
+}
+
+/** Cursor-Style: „Worked for 23 seconds“ / „Worked for 2 minutes“. */
+export function formatWorkedLabel(ms: number, working = false): string {
+  if (working) return 'Working…';
+  const totalSec = Math.max(1, Math.round(ms / 1000));
+  if (totalSec < 60) {
+    return `Worked for ${totalSec} ${totalSec === 1 ? 'second' : 'seconds'}`;
+  }
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  if (sec === 0) {
+    return `Worked for ${min} ${min === 1 ? 'minute' : 'minutes'}`;
+  }
+  return `Worked for ${min}m ${sec}s`;
+}
+
+export function groupTimelineSegments(items: TimelineItem[]): TimelineDisplaySegment[] {
+  const segments: TimelineDisplaySegment[] = [];
+  let workBatch: TimelineItem[] = [];
+
+  const flushWork = () => {
+    if (!workBatch.length) return;
+    segments.push({
+      type: 'work',
+      id: `work-${workBatch[0].id}`,
+      items: [...workBatch],
+      durationMs: estimateWorkDurationMs(workBatch),
+    });
+    workBatch = [];
+  };
+
+  for (const item of items) {
+    if (item.kind === 'assistant') {
+      flushWork();
+      segments.push({ type: 'assistant', item });
+    } else if (item.kind === 'error') {
+      flushWork();
+      segments.push({ type: 'error', item });
+    } else if (WORK_KINDS.has(item.kind)) {
+      workBatch.push(item);
+    }
+  }
+  flushWork();
+  return segments;
+}
+
 export function parseStoredEvents(
   rows: Array<{ seq: number; type: string; payload: Record<string, unknown> }>,
 ): AgentStreamEvent[] {

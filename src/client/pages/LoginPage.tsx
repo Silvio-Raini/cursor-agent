@@ -1,8 +1,7 @@
 import { useState, type FormEvent } from 'react';
-import { useTheme } from '../lib/theme';
+import { ThemeToggle } from '../components/ThemeToggle';
 
 export function LoginPage({ onLogin }: { onLogin: (u: string, p: string) => Promise<void> }) {
-  const { theme, toggle } = useTheme();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -22,17 +21,18 @@ export function LoginPage({ onLogin }: { onLogin: (u: string, p: string) => Prom
   }
 
   return (
-    <div className="login-shell">
-      <div className="login-glow" aria-hidden="true" />
-      <div className="login-card">
+    <div className="page login-page">
+      <div className="login-card panel">
         <div className="login-top">
-          <span className="brand-mark lg">CA</span>
-          <button type="button" className="theme-toggle" onClick={toggle} aria-label="Theme">
-            {theme === 'dark' ? '☀' : '☾'}
-          </button>
+          <div className="brand-group">
+            <span className="brand-mark" aria-hidden="true" />
+            <div>
+              <p className="brand-title">Cursor Agent</p>
+              <p className="brand-sub">Self-hosted · @cursor/sdk</p>
+            </div>
+          </div>
+          <ThemeToggle />
         </div>
-        <h1>Cursor Agent</h1>
-        <p className="login-lead">Lokale Agents auf deinem Server — Code ändern, Befehle ausführen, Follow-ups senden.</p>
         <form onSubmit={submit} className="login-form">
           <label>
             Benutzername
@@ -43,7 +43,7 @@ export function LoginPage({ onLogin }: { onLogin: (u: string, p: string) => Prom
             <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
           </label>
           {error && <p className="form-error">{error}</p>}
-          <button type="submit" className="btn btn-primary btn-block" disabled={busy}>
+          <button type="submit" className="tool-btn primary btn-block" disabled={busy}>
             {busy ? 'Anmelden…' : 'Anmelden'}
           </button>
         </form>
