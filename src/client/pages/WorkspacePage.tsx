@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { DevShell } from '../components/DevShell';
+import { MobileMenu } from '../components/MobileMenu';
 import { RunThread } from '../components/RunThread';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { useMediaQuery } from '../lib/useMediaQuery';
 
 type Session = {
   id: string;
@@ -51,6 +53,10 @@ export function WorkspacePage() {
   const [newModel, setNewModel] = useState('');
   const [newPrompt, setNewPrompt] = useState('');
   const chatRef = useRef<HTMLDivElement>(null);
+  const isMobile = useMediaQuery('(max-width: 860px)');
+  const isMobileRef = useRef(isMobile);
+  isMobileRef.current = isMobile;
+  const [mobileView, setMobileView] = useState<'list' | 'chat'>('list');
 
   const selected = sessions.find((s) => s.id === selectedId) || null;
   const liveRunId = runs.find((r) => r.status === 'running' || r.status === 'queued')?.id || null;
@@ -66,7 +72,8 @@ export function WorkspacePage() {
     if (selectedId && !list.some((s) => s.id === selectedId)) {
       setSelectedId(list[0]?.id ?? null);
       setRuns([]);
-    } else if (!selectedId && list[0]) {
+      if (isMobileRef.current) setMobileView(list[0] ? 'chat' : 'list');
+    } else if (!selectedId && list[0] && !isMobileRef.current) {
       setSelectedId(list[0].id);
     }
   }, [newModel, selectedId]);
@@ -87,6 +94,15 @@ export function WorkspacePage() {
     return () => clearInterval(t);
   }, [selectedId, loadDetail]);
 
+  useEffect(() => {
+    if (isMobile && !selectedId) setMobileView('list');
+  }, [isMobile, selectedId]);
+
+  function selectSession(id: string) {
+    setSelectedId(id);
+    if (isMobile) setMobileView('chat');
+  }
+
   async function onCreate(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -106,6 +122,7 @@ export function WorkspacePage() {
       setNewPrompt('');
       await load();
       setSelectedId(result.session.id);
+      if (isMobile) setMobileView('chat');
       if (result.session.id) await loadDetail(result.session.id);
     } finally {
       setBusy(false);
@@ -156,6 +173,7 @@ export function WorkspacePage() {
       if (selectedId === session.id) {
         setSelectedId(null);
         setRuns([]);
+        if (isMobile) setMobileView('list');
       }
       await load();
     } finally {
@@ -165,22 +183,39 @@ export function WorkspacePage() {
 
   const noKey = Boolean(meta && !meta.settings.hasApiKey);
 
+  const frameClass = isMobile
+    ? mobileView === 'chat'
+      ? 'mobile-chat-mode'
+      : 'mobile-list-mode'
+    : undefined;
+
   return (
     <DevShell
       title="Cursor Agent"
       subtitle="Lokale Agents auf deinem Server · @cursor/sdk"
+      frameClass={frameClass}
       actions={
         <>
-          {user?.role === 'admin' && (
-            <Link className="tools-link" to="/settings">Einstellungen</Link>
-          )}
-          <button type="button" className="tool-btn" onClick={() => void logout()}>
-            Abmelden
-          </button>
+          <div className="header-actions-desktop">
+            {user?.role === 'admin' && (
+              <Link className="tools-link" to="/settings">Einstellungen</Link>
+            )}
+            <button type="button" className="tool-btn" onClick={() => void logout()}>
+              Abmelden
+            </button>
+          </div>
+          <MobileMenu>
+            {user?.role === 'admin' && (
+              <Link className="header-menu-item" to="/settings">Einstellungen</Link>
+            )}
+            <button type="button" className="header-menu-item" onClick={() => void logout()}>
+              Abmelden
+            </button>
+          </MobileMenu>
         </>
       }
     >
-      <div className="app-body">
+      <div className={`app-body${isMobile ? ` mobile-${mobileView}` : ''}`}>
         <aside className="side-panel panel">
           <div className="side-panel-head">
             <span className="side-label">Chats</span>
@@ -197,7 +232,7 @@ export function WorkspacePage() {
                   key={s.id}
                   className={`session-row${selectedId === s.id ? ' active' : ''}`}
                 >
-                  <button type="button" className="session-item" onClick={() => setSelectedId(s.id)}>
+                  <button type="button" className="session-item" onClick={() => selectSession(s.id)}>
                     <span className="session-title">{s.title}</span>
                     <span className="session-meta">{projectLabel(s.cwd, s.workspaceLabel)}</span>
                     <span className={`status-dot ${s.status}`} />
@@ -222,13 +257,30 @@ export function WorkspacePage() {
 
         <section className="chat-shell panel">
           <div className="chat-shell-head">
+            {isMobile && (
+              <button
+                type="button"
+                className="mobile-back-btn"
+                onClick={() => setMobileView('list')}
+                aria-label="Zur Chat-Liste"
+              >
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                  <path d="M15 18l-6-6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                Chats
+              </button>
+            )}
             <div className="chat-shell-title">
               <h2>{selected?.title || 'Chat wählen'}</h2>
               {selected && (
-                <>
-                  <span className="cwd-badge">{projectLabel(selected.cwd, selected.workspaceLabel)}</span>
-                  <span className={`pill status-${selected.status}`}>{selected.status}</span>
-                </>
+                <div className="chat-shell-meta">
+                  <span className="cwd-badge" title={selected.cwd}>
+                    {projectLabel(selected.cwd, selected.workspaceLabel)}
+                  </span>
+                  <span className={`pill status-${selected.status}`}>
+                    {selected.status === 'running' ? 'läuft' : selected.status === 'idle' ? 'bereit' : selected.status}
+                  </span>
+                </div>
               )}
             </div>
           </div>

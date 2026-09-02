@@ -6,32 +6,33 @@ import {
   type TimelineDisplaySegment,
 } from '../../shared/timeline.js';
 import { renderMarkdown } from '../lib/markdown';
-
-function JsonBlock({ value }: { value: unknown }) {
-  const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
-  return <pre className="json-block json-block-sm">{text}</pre>;
-}
+import { ToolDetailView, ToolTriggerLabel, toolStatusClass } from './ToolDetailView';
 
 function WorkToolLine({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
   const [open, setOpen] = useState(false);
   const hasDetail = item.input !== undefined || item.result !== undefined;
 
   return (
-    <div className="work-tool-line">
+    <div className={`work-tool-line${open ? ' open' : ''}`}>
       {hasDetail ? (
         <button type="button" className="work-tool-trigger" onClick={() => setOpen((v) => !v)}>
           <span className="work-tool-chevron">{open ? '▾' : '▸'}</span>
-          <span className="work-tool-name">{item.name}</span>
+          <span className="work-tool-label">
+            <ToolTriggerLabel item={item} />
+          </span>
+          <span className={`work-tool-status ${toolStatusClass(item.status)}`} />
         </button>
       ) : (
         <span className="work-tool-trigger static">
-          <span className="work-tool-name">{item.name}</span>
+          <span className="work-tool-label">
+            <ToolTriggerLabel item={item} />
+          </span>
+          <span className={`work-tool-status ${toolStatusClass(item.status)}`} />
         </span>
       )}
       {open && hasDetail && (
         <div className="work-tool-detail">
-          {item.input !== undefined && <JsonBlock value={item.input} />}
-          {item.result !== undefined && <JsonBlock value={item.result} />}
+          <ToolDetailView name={item.name} input={item.input} result={item.result} />
         </div>
       )}
     </div>

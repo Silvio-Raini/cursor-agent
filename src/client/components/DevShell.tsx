@@ -8,12 +8,13 @@ type DevShellProps = {
   subtitle: string;
   children: ReactNode;
   actions?: ReactNode;
+  frameClass?: string;
 };
 
-export function DevShell({ title, subtitle, children, actions }: DevShellProps) {
+export function DevShell({ title, subtitle, children, actions, frameClass }: DevShellProps) {
   return (
     <div className="page">
-      <div className="frame frame-wide app-frame">
+      <div className={`frame frame-wide app-frame${frameClass ? ` ${frameClass}` : ''}`}>
         <header className="top">
           <div className="brand-group">
             <span className="brand-mark" aria-hidden="true" />
