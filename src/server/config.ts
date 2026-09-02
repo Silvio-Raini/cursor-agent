@@ -25,6 +25,9 @@ const schema = z.object({
   AGENT_ALLOW_ANY_PATH: z.string().optional().transform((v) => v === 'true'),
   PUBLIC_URL: z.string().url().default('https://cursor.codigoworks.com'),
   FRONTEND_DIST: z.string().default(path.join(rootDir, 'dist', 'client')),
+  UPDATE_FROM_GIT: z.string().optional().transform((v) => v !== 'false'),
+  UPDATE_BRANCH: z.string().default('main'),
+  UPDATE_SERVICE: z.string().default('app-cursor'),
 });
 
 const parsed = schema.safeParse(process.env);
@@ -36,6 +39,7 @@ if (!parsed.success) {
 
 export const env = parsed.data;
 export const isProd = env.NODE_ENV === 'production';
+export const appRoot = rootDir;
 
 export function workspaceRoots(): string[] {
   return env.WORKSPACES.split(',')

@@ -898,6 +898,26 @@ a { color: inherit; text-decoration: none; }
   font-family: var(--mono); font-size: 0.72rem;
   background: var(--bg); padding: 0.65rem; border-radius: var(--radius-sm); overflow: auto;
 }
+.update-section .settings-dl { margin-top: 0.75rem; }
+.update-actions {
+  display: flex; flex-wrap: wrap; gap: 0.5rem;
+  margin: 0.85rem 0 0.5rem;
+}
+.update-log {
+  margin: 0.75rem 0 0;
+  max-height: 220px;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  line-height: 1.45;
+  background: var(--bg);
+  padding: 0.65rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.update-footnote { margin-top: 0.85rem; }
 
 .mobile-back-btn {
   display: none;
