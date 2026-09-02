@@ -39,20 +39,44 @@ function UserBlock({ text }: { text: string }) {
   );
 }
 
-export function RunThread({ run, live, isFirst }: { run: Run; live: boolean; isFirst?: boolean }) {
+export function RunThread({
+  run,
+  live,
+  isFirst,
+  onCancelQueued,
+}: {
+  run: Run;
+  live: boolean;
+  isFirst?: boolean;
+  onCancelQueued?: () => void;
+}) {
   const { timeline } = useRunTimeline(run.id, live);
   const endRef = useRef<HTMLDivElement>(null);
+  const queued = run.status === 'queued';
 
   useEffect(() => {
     if (live) endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [timeline, live]);
 
   return (
-    <section className="chat-turn">
+    <section className={`chat-turn${queued ? ' queued' : ''}`}>
       {!isFirst && <div className="turn-divider" />}
       <UserBlock text={run.prompt} />
-      <ChatTimeline items={timeline} live={live} />
-      {run.errorMessage && <p className="chat-error">{run.errorMessage}</p>}
+      {queued ? (
+        <div className="queue-wait">
+          <span className="queue-wait-label">In Warteschlange</span>
+          {onCancelQueued && (
+            <button type="button" className="queue-wait-cancel" onClick={onCancelQueued}>
+              Entfernen
+            </button>
+          )}
+        </div>
+      ) : (
+        <ChatTimeline items={timeline} live={live} />
+      )}
+      {run.errorMessage && run.status !== 'queued' && (
+        <p className="chat-error">{run.errorMessage}</p>
+      )}
       <div ref={endRef} />
     </section>
   );

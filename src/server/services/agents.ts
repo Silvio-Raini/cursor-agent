@@ -30,6 +30,8 @@ export type RunRecord = {
 
 const cancelledRuns = new Set<string>();
 const runEmitters = new Map<string, EventEmitter>();
+/** Sessions with an in-memory job currently executing. */
+const activeSessionJobs = new Set<string>();
 
 function mapSession(row: Record<string, unknown>): SessionRecord {
   return {
@@ -88,8 +90,67 @@ export function subscribeRunEvents(runId: string, listener: (ev: NormalizedEvent
   return () => getRunEmitter(runId).off('event', listener);
 }
 
-function countActiveRuns(): number {
-  return (getDb().prepare(`SELECT COUNT(*) AS c FROM agent_runs WHERE status IN ('queued','running')`).get() as { c: number }).c;
+function countRunningRuns(): number {
+  return (
+    getDb().prepare(`SELECT COUNT(*) AS c FROM agent_runs WHERE status = 'running'`).get() as { c: number }
+  ).c;
+}
+
+function sessionHasRunning(sessionId: string): boolean {
+  const row = getDb()
+    .prepare(`SELECT id FROM agent_runs WHERE session_id = ? AND status = 'running' LIMIT 1`)
+    .get(sessionId) as { id: string } | undefined;
+  return Boolean(row);
+}
+
+function nextQueuedRun(sessionId: string): Record<string, unknown> | undefined {
+  return getDb()
+    .prepare(
+      `SELECT * FROM agent_runs
+       WHERE session_id = ? AND status = 'queued'
+       ORDER BY started_at ASC, id ASC
+       LIMIT 1`,
+    )
+    .get(sessionId) as Record<string, unknown> | undefined;
+}
+
+function listSessionIdsWithQueue(): string[] {
+  const rows = getDb()
+    .prepare(`SELECT DISTINCT session_id AS id FROM agent_runs WHERE status = 'queued'`)
+    .all() as { id: string }[];
+  return rows.map((r) => r.id);
+}
+
+/**
+ * Claim next queued run for a session (atomic). Returns null if busy / limit / empty.
+ */
+function claimNextQueuedRun(sessionId: string): { run: Record<string, unknown>; session: SessionRecord } | null {
+  const db = getDb();
+  const claim = db.transaction((sid: string) => {
+    if (activeSessionJobs.has(sid)) return null;
+    const running = db
+      .prepare(`SELECT id FROM agent_runs WHERE session_id = ? AND status = 'running' LIMIT 1`)
+      .get(sid);
+    if (running) return null;
+    if (countRunningRuns() >= env.AGENT_MAX_CONCURRENT) return null;
+
+    const next = nextQueuedRun(sid);
+    if (!next) return null;
+
+    const updated = db
+      .prepare(`UPDATE agent_runs SET status = 'running' WHERE id = ? AND status = 'queued'`)
+      .run(next.id as string);
+    if (updated.changes !== 1) return null;
+
+    db.prepare(`UPDATE agent_sessions SET status = 'running', updated_at = datetime('now') WHERE id = ?`).run(sid);
+    const sessionRow = db.prepare('SELECT * FROM agent_sessions WHERE id = ?').get(sid) as
+      | Record<string, unknown>
+      | undefined;
+    if (!sessionRow) return null;
+    return { run: { ...next, status: 'running' }, session: mapSession(sessionRow) };
+  });
+
+  return claim(sessionId);
 }
 
 export function listSessions(userId: number): SessionRecord[] {
@@ -163,18 +224,16 @@ export async function createSession(input: {
   return { session: getSession(sessionId, input.userId) };
 }
 
-async function runAgentJob(session: SessionRecord, runId: string, prompt: string): Promise<void> {
+async function runAgentJob(session: SessionRecord, runId: string, prompt: string): Promise<string> {
   const db = getDb();
-  const cursorAgentId = session.id.startsWith('pending-') ? null : session.id;
-
-  db.prepare(`UPDATE agent_runs SET status = 'running' WHERE id = ?`).run(runId);
-  db.prepare(`UPDATE agent_sessions SET status = 'running', updated_at = datetime('now') WHERE id = ?`).run(session.id);
+  let sessionId = session.id;
+  activeSessionJobs.add(sessionId);
   cancelledRuns.delete(runId);
 
   try {
     const result = await executeAgentRun({
       panelRunId: runId,
-      agentId: cursorAgentId,
+      agentId: session.id.startsWith('pending-') ? null : session.id,
       cwd: session.cwd,
       model: session.model,
       prompt,
@@ -186,33 +245,128 @@ async function runAgentJob(session: SessionRecord, runId: string, prompt: string
       const oldId = session.id;
       db.prepare('UPDATE agent_sessions SET id = ? WHERE id = ?').run(result.agentId, oldId);
       db.prepare('UPDATE agent_runs SET session_id = ? WHERE session_id = ?').run(result.agentId, oldId);
+      activeSessionJobs.delete(oldId);
+      activeSessionJobs.add(result.agentId);
+      sessionId = result.agentId;
     }
+
+    const finalStatus = cancelledRuns.has(runId) ? 'cancelled' : result.status;
+    const errorMessage = cancelledRuns.has(runId)
+      ? 'Abgebrochen'
+      : result.errorMessage || null;
 
     db.prepare(
       `UPDATE agent_runs SET status = ?, error_message = ?, finished_at = datetime('now') WHERE id = ?`,
-    ).run(result.status, result.errorMessage || null, runId);
+    ).run(finalStatus, errorMessage, runId);
 
+    const hasMoreQueued = Boolean(nextQueuedRun(sessionId));
     db.prepare(
       `UPDATE agent_sessions SET status = ?, last_run_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`,
-    ).run(result.status === 'finished' ? 'finished' : result.status, result.agentId);
+    ).run(hasMoreQueued ? 'running' : finalStatus === 'finished' ? 'finished' : finalStatus, sessionId);
 
-    broadcastEvent(runId, { type: 'status', text: result.status, timestamp: new Date().toISOString() });
+    broadcastEvent(runId, {
+      type: 'status',
+      text: finalStatus,
+      timestamp: new Date().toISOString(),
+    });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Fehler';
-    db.prepare(`UPDATE agent_runs SET status = 'error', error_message = ?, finished_at = datetime('now') WHERE id = ?`).run(msg, runId);
-    db.prepare(`UPDATE agent_sessions SET status = 'error', updated_at = datetime('now') WHERE id = ?`).run(session.id);
-    broadcastEvent(runId, { type: 'error', text: msg, timestamp: new Date().toISOString() });
+    if (cancelledRuns.has(runId)) {
+      db.prepare(
+        `UPDATE agent_runs SET status = 'cancelled', error_message = 'Abgebrochen', finished_at = datetime('now') WHERE id = ?`,
+      ).run(runId);
+    } else {
+      const msg = err instanceof Error ? err.message : 'Fehler';
+      db.prepare(
+        `UPDATE agent_runs SET status = 'error', error_message = ?, finished_at = datetime('now') WHERE id = ?`,
+      ).run(msg, runId);
+      broadcastEvent(runId, { type: 'error', text: msg, timestamp: new Date().toISOString() });
+    }
+
+    const hasMoreQueued = Boolean(nextQueuedRun(sessionId));
+    db.prepare(`UPDATE agent_sessions SET status = ?, updated_at = datetime('now') WHERE id = ?`).run(
+      hasMoreQueued ? 'running' : cancelledRuns.has(runId) ? 'cancelled' : 'error',
+      sessionId,
+    );
   } finally {
+    activeSessionJobs.delete(sessionId);
     setTimeout(() => runEmitters.delete(runId), 60_000);
+    queueMicrotask(() => {
+      void pumpSessionQueue(sessionId);
+      void wakeQueuedSessions();
+    });
   }
+
+  return sessionId;
+}
+
+/** Start next queued run for a session if possible. */
+export function pumpSessionQueue(sessionId: string): void {
+  if (activeSessionJobs.has(sessionId)) return;
+  if (sessionHasRunning(sessionId)) return;
+
+  const claimed = claimNextQueuedRun(sessionId);
+  if (!claimed) return;
+
+  void runAgentJob(claimed.session, claimed.run.id as string, claimed.run.prompt as string);
+}
+
+function wakeQueuedSessions(): void {
+  for (const sessionId of listSessionIdsWithQueue()) {
+    pumpSessionQueue(sessionId);
+  }
+}
+
+/**
+ * After server restart: orphaned `running` jobs are dead; mark them and resume queues.
+ */
+export function resumeQueuesOnStartup(): void {
+  const db = getDb();
+  const orphaned = db
+    .prepare(`SELECT id, session_id FROM agent_runs WHERE status = 'running'`)
+    .all() as Array<{ id: string; session_id: string }>;
+
+  for (const row of orphaned) {
+    db.prepare(
+      `UPDATE agent_runs SET status = 'error', error_message = ?, finished_at = datetime('now') WHERE id = ?`,
+    ).run('Unterbrochen (Server-Neustart)', row.id);
+    broadcastEvent(row.id, {
+      type: 'error',
+      text: 'Unterbrochen (Server-Neustart)',
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  const sessions = db
+    .prepare(
+      `SELECT DISTINCT s.id FROM agent_sessions s
+       INNER JOIN agent_runs r ON r.session_id = s.id
+       WHERE r.status = 'queued'`,
+    )
+    .all() as Array<{ id: string }>;
+
+  for (const s of sessions) {
+    const hasQueued = Boolean(nextQueuedRun(s.id));
+    db.prepare(`UPDATE agent_sessions SET status = ?, updated_at = datetime('now') WHERE id = ?`).run(
+      hasQueued ? 'running' : 'idle',
+      s.id,
+    );
+  }
+
+  // Sessions stuck in running without active/queued runs
+  db.prepare(
+    `UPDATE agent_sessions SET status = 'error', updated_at = datetime('now')
+     WHERE status = 'running'
+       AND id NOT IN (SELECT session_id FROM agent_runs WHERE status IN ('queued','running'))`,
+  ).run();
+
+  console.log(
+    `[agents] Queue-Resume: ${orphaned.length} verwaiste Runs, ${sessions.length} Sessions mit Warteschlange`,
+  );
+  wakeQueuedSessions();
 }
 
 export async function sendPrompt(sessionId: string, prompt: string, userId: number): Promise<RunRecord> {
   const session = getSession(sessionId, userId);
-  if (session.status === 'running') throw new AppError('SESSION_BUSY', 'Run läuft bereits.', 409);
-  if (countActiveRuns() >= env.AGENT_MAX_CONCURRENT) {
-    throw new AppError('CONCURRENCY_LIMIT', `Max. ${env.AGENT_MAX_CONCURRENT} parallele Runs.`, 429);
-  }
   const trimmed = prompt.trim();
   if (!trimmed) throw new AppError('VALIDATION_ERROR', 'Prompt leer.', 400);
 
@@ -221,14 +375,17 @@ export async function sendPrompt(sessionId: string, prompt: string, userId: numb
   }
 
   const runId = `run-${nanoid(14)}`;
-  getDb().prepare('INSERT INTO agent_runs (id, session_id, prompt, status) VALUES (?, ?, ?, ?)').run(
-    runId,
-    sessionId,
-    trimmed,
-    'queued',
-  );
+  getDb()
+    .prepare('INSERT INTO agent_runs (id, session_id, prompt, status) VALUES (?, ?, ?, ?)')
+    .run(runId, sessionId, trimmed, 'queued');
 
-  void runAgentJob(session, runId, trimmed);
+  // Session als beschäftigt markieren solange Queue/Run aktiv
+  getDb()
+    .prepare(`UPDATE agent_sessions SET status = 'running', updated_at = datetime('now') WHERE id = ?`)
+    .run(sessionId);
+
+  pumpSessionQueue(sessionId);
+
   return mapRun(getDb().prepare('SELECT * FROM agent_runs WHERE id = ?').get(runId) as Record<string, unknown>);
 }
 
@@ -237,13 +394,39 @@ export async function cancelRun(runId: string, userId: number): Promise<RunRecor
   if (run.status !== 'queued' && run.status !== 'running') {
     throw new AppError('RUN_NOT_ACTIVE', 'Run nicht aktiv.', 400);
   }
+
   cancelledRuns.add(runId);
-  await cancelActiveRun(runId);
-  getDb()
-    .prepare(`UPDATE agent_runs SET status = 'cancelled', error_message = 'Abgebrochen', finished_at = datetime('now') WHERE id = ?`)
-    .run(runId);
-  getDb().prepare(`UPDATE agent_sessions SET status = 'cancelled', updated_at = datetime('now') WHERE id = ?`).run(run.sessionId);
+
+  if (run.status === 'queued') {
+    getDb()
+      .prepare(
+        `UPDATE agent_runs SET status = 'cancelled', error_message = 'Abgebrochen', finished_at = datetime('now') WHERE id = ?`,
+      )
+      .run(runId);
+  } else {
+    await cancelActiveRun(runId);
+    getDb()
+      .prepare(
+        `UPDATE agent_runs SET status = 'cancelled', error_message = 'Abgebrochen', finished_at = datetime('now') WHERE id = ?`,
+      )
+      .run(runId);
+  }
+
   broadcastEvent(runId, { type: 'status', text: 'cancelled', timestamp: new Date().toISOString() });
+
+  const hasMore =
+    sessionHasRunning(run.sessionId) || Boolean(nextQueuedRun(run.sessionId)) || activeSessionJobs.has(run.sessionId);
+  if (!hasMore) {
+    getDb()
+      .prepare(`UPDATE agent_sessions SET status = 'cancelled', updated_at = datetime('now') WHERE id = ?`)
+      .run(run.sessionId);
+  }
+
+  queueMicrotask(() => {
+    void pumpSessionQueue(run.sessionId);
+    void wakeQueuedSessions();
+  });
+
   return getRun(runId, userId);
 }
 
@@ -257,4 +440,5 @@ export async function deleteSession(sessionId: string, userId: number): Promise<
     await cancelRun(row.id, userId);
   }
   db.prepare('DELETE FROM agent_sessions WHERE id = ?').run(sessionId);
+  activeSessionJobs.delete(sessionId);
 }

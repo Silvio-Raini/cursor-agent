@@ -10,9 +10,11 @@ import { toPublicError } from './util/errors.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerSettingsRoutes } from './routes/settings.js';
 import { registerAgentRoutes } from './routes/agents.js';
+import { resumeQueuesOnStartup } from './services/agents.js';
 
 async function main(): Promise<void> {
   initDatabase();
+  resumeQueuesOnStartup();
 
   const app = Fastify({
     logger: { level: isProd ? 'info' : 'debug' },

@@ -317,6 +317,33 @@ a { color: inherit; text-decoration: none; }
 
 /* Chat turns */
 .chat-turn { display: flex; flex-direction: column; gap: 8px; }
+.chat-turn.queued .user-block {
+  opacity: 0.92;
+  border-style: dashed;
+}
+.queue-wait {
+  display: flex; align-items: center; gap: 10px;
+  padding: 2px 0 4px;
+}
+.queue-wait-label {
+  font-size: 11px; color: var(--muted); font-weight: 500;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.queue-wait-label::before {
+  content: '';
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--warn);
+  animation: work-pulse 1.2s ease-in-out infinite;
+}
+.queue-wait-cancel {
+  border: none; background: transparent;
+  color: var(--muted); font-size: 11px; cursor: pointer;
+  padding: 2px 6px; border-radius: 6px;
+}
+.queue-wait-cancel:hover {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
 .turn-divider {
   height: 1px;
   margin: 14px 0;

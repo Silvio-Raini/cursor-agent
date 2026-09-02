@@ -59,7 +59,9 @@ export function WorkspacePage() {
   const [mobileView, setMobileView] = useState<'list' | 'chat'>('list');
 
   const selected = sessions.find((s) => s.id === selectedId) || null;
-  const liveRunId = runs.find((r) => r.status === 'running' || r.status === 'queued')?.id || null;
+  const liveRunId = runs.find((r) => r.status === 'running')?.id || null;
+  const queuedCount = runs.filter((r) => r.status === 'queued').length;
+  const sessionBusy = Boolean(liveRunId) || queuedCount > 0;
 
   const load = useCallback(async () => {
     const [m, list] = await Promise.all([
@@ -152,6 +154,17 @@ export function WorkspacePage() {
     setBusy(true);
     try {
       await api(`/api/agents/runs/${liveRunId}/cancel`, { method: 'POST', json: {} });
+      if (selectedId) await loadDetail(selectedId);
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function cancelQueued(runId: string) {
+    setBusy(true);
+    try {
+      await api(`/api/agents/runs/${runId}/cancel`, { method: 'POST', json: {} });
       if (selectedId) await loadDetail(selectedId);
       await load();
     } finally {
@@ -277,8 +290,14 @@ export function WorkspacePage() {
                   <span className="cwd-badge" title={selected.cwd}>
                     {projectLabel(selected.cwd, selected.workspaceLabel)}
                   </span>
-                  <span className={`pill status-${selected.status}`}>
-                    {selected.status === 'running' ? 'läuft' : selected.status === 'idle' ? 'bereit' : selected.status}
+                  <span className={`pill status-${sessionBusy ? 'running' : selected.status}`}>
+                    {sessionBusy
+                      ? queuedCount > 0
+                        ? `läuft · ${queuedCount} in Queue`
+                        : 'läuft'
+                      : selected.status === 'idle' || selected.status === 'finished'
+                        ? 'bereit'
+                        : selected.status}
                   </span>
                 </div>
               )}
@@ -310,7 +329,12 @@ export function WorkspacePage() {
                     key={run.id}
                     run={run}
                     isFirst={i === 0}
-                    live={run.id === liveRunId && (run.status === 'running' || run.status === 'queued')}
+                    live={run.id === liveRunId && run.status === 'running'}
+                    onCancelQueued={
+                      run.status === 'queued'
+                        ? () => void cancelQueued(run.id)
+                        : undefined
+                    }
                   />
                 ))
             )}
@@ -323,9 +347,9 @@ export function WorkspacePage() {
                   <textarea
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
-                    placeholder="Ask Cursor…"
+                    placeholder={sessionBusy ? 'Nachricht in Queue stellen…' : 'Ask Cursor…'}
                     rows={1}
-                    disabled={busy || selected.status === 'running' || noKey}
+                    disabled={busy || noKey}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault();
@@ -334,7 +358,7 @@ export function WorkspacePage() {
                     }}
                   />
                   <div className="composer-actions">
-                    {selected.status === 'running' && liveRunId && (
+                    {liveRunId && (
                       <button type="button" className="tool-btn" onClick={() => void onCancel()} disabled={busy}>
                         Stop
                       </button>
@@ -342,8 +366,9 @@ export function WorkspacePage() {
                     <button
                       type="submit"
                       className="tool-btn primary btn-send"
-                      disabled={busy || !prompt.trim() || selected.status === 'running' || noKey}
-                      aria-label="Senden"
+                      disabled={busy || !prompt.trim() || noKey}
+                      aria-label={sessionBusy ? 'In Queue' : 'Senden'}
+                      title={sessionBusy ? 'Zur Warteschlange hinzufügen' : 'Senden'}
                     >
                       ↑
                     </button>
