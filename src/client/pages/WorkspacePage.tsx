@@ -18,6 +18,7 @@ type Session = {
   updatedAt: string;
   lastRunAt: string | null;
   shared?: boolean;
+  sharedWrite?: boolean;
 };
 
 type Run = {
@@ -252,7 +253,7 @@ export function WorkspacePage() {
                     <span className="session-title">{s.title}</span>
                     <span className="session-meta">
                       {projectLabel(s.cwd, s.workspaceLabel)}
-                      {s.shared ? ' · geteilt' : ''}
+                      {s.shared ? (s.sharedWrite ? ' · geteilt, schreiben' : ' · geteilt') : ''}
                     </span>
                     <span className={`status-dot ${s.status}`} />
                   </button>
@@ -306,7 +307,9 @@ export function WorkspacePage() {
                           ? 'bereit'
                           : selected.status}
                     </span>
-                    {selected.shared && <span className="pill">geteilt</span>}
+                    {selected.shared && (
+                      <span className="pill">{selected.sharedWrite ? 'geteilt · schreiben' : 'geteilt'}</span>
+                    )}
                   </div>
                 )}
               </div>

@@ -122,6 +122,14 @@ export const migrations: Migration[] = [
       `);
     },
   },
+  {
+    id: '004_share_can_write',
+    up: (db) => {
+      if (!columnExists(db, 'chat_shares', 'can_write')) {
+        db.exec(`ALTER TABLE chat_shares ADD COLUMN can_write INTEGER NOT NULL DEFAULT 0`);
+      }
+    },
+  },
 ];
 
 /** Beispiel-Hilfen für künftige Migrationen (Spalten/Tabellen nur ergänzen). */

@@ -280,6 +280,7 @@ a { color: inherit; text-decoration: none; }
   border-top: 1px solid var(--line);
   color: var(--muted); font-size: 0.8rem; text-align: center;
 }
+.share-send-error { margin: 0 0 0.4rem; text-align: center; }
 .chat-shell-title {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
 }

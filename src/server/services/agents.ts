@@ -160,10 +160,10 @@ function shareIsActive(expiresAt: unknown, hasShare: boolean): boolean {
   return Number.isFinite(ts) && ts > Date.now();
 }
 
-export function listSessions(userId: number): Array<SessionRecord & { shared: boolean }> {
+export function listSessions(userId: number): Array<SessionRecord & { shared: boolean; sharedWrite: boolean }> {
   const rows = getDb()
     .prepare(
-      `SELECT s.*, sh.session_id AS share_session_id, sh.expires_at AS share_expires_at
+      `SELECT s.*, sh.session_id AS share_session_id, sh.expires_at AS share_expires_at, sh.can_write AS share_can_write
        FROM agent_sessions s
        LEFT JOIN chat_shares sh ON sh.session_id = s.id
        WHERE s.created_by_user_id = ?
@@ -171,10 +171,14 @@ export function listSessions(userId: number): Array<SessionRecord & { shared: bo
        LIMIT 100`,
     )
     .all(userId) as Record<string, unknown>[];
-  return rows.map((row) => ({
-    ...mapSession(row),
-    shared: shareIsActive(row.share_expires_at, Boolean(row.share_session_id)),
-  }));
+  return rows.map((row) => {
+    const shared = shareIsActive(row.share_expires_at, Boolean(row.share_session_id));
+    return {
+      ...mapSession(row),
+      shared,
+      sharedWrite: shared && Number(row.share_can_write) === 1,
+    };
+  });
 }
 
 export function getSession(id: string, userId: number): SessionRecord {

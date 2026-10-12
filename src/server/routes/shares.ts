@@ -3,11 +3,13 @@ import { z } from 'zod';
 import { requireCsrf, requireUser } from '../auth.js';
 import { AppError } from '../util/errors.js';
 import {
+  cancelSharedRun,
   getShareStatus,
   listShareRunEvents,
   readShare,
   requireUnlockedShare,
   revokeShare,
+  sendSharedPrompt,
   subscribeShareRun,
   unlockShare,
   upsertShare,
@@ -36,6 +38,7 @@ export async function registerShareRoutes(app: FastifyInstance): Promise<void> {
       password: z.string().min(4).max(128).optional(),
       expiresInDays: z.union([z.literal(1), z.literal(7), z.literal(30), z.null()]).optional(),
       rotateLink: z.boolean().optional(),
+      canWrite: z.boolean().optional(),
     });
     const body = schema.safeParse(req.body);
     if (!body.success) throw new AppError('VALIDATION_ERROR', 'Ungültige Eingabe. Passwort mindestens 4 Zeichen.', 400);
@@ -62,6 +65,22 @@ export async function registerShareRoutes(app: FastifyInstance): Promise<void> {
     const body = z.object({ password: z.string().min(1).max(128) }).safeParse(req.body);
     if (!body.success) throw new AppError('VALIDATION_ERROR', 'Passwort fehlt.', 400);
     const chat = await unlockShare(req, reply, parseToken(token), body.data.password);
+    return { success: true, data: { locked: false, chat } };
+  });
+
+  app.post('/api/share/:token/send', {
+    config: { rateLimit: { max: 15, timeWindow: 60_000 } },
+  }, async (req) => {
+    const { token } = req.params as { token: string };
+    const body = z.object({ prompt: z.string().min(1).max(50_000) }).safeParse(req.body);
+    if (!body.success) throw new AppError('VALIDATION_ERROR', 'Ungültige Eingabe.', 400);
+    const chat = await sendSharedPrompt(req, parseToken(token), body.data.prompt);
+    return { success: true, data: { locked: false, chat } };
+  });
+
+  app.post('/api/share/:token/runs/:runId/cancel', async (req) => {
+    const { token, runId } = req.params as { token: string; runId: string };
+    const chat = await cancelSharedRun(req, parseToken(token), runId);
     return { success: true, data: { locked: false, chat } };
   });
 

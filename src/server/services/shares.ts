@@ -4,7 +4,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { env } from '../config.js';
 import { getDb } from '../db.js';
 import { AppError } from '../util/errors.js';
-import { subscribeRunEvents } from './agents.js';
+import { cancelRun, sendPrompt, subscribeRunEvents } from './agents.js';
 
 const UNLOCK_MAX_AGE_SEC = 30 * 24 * 60 * 60;
 const FAIL_LIMIT = 8;
@@ -18,11 +18,13 @@ type ShareRow = {
   created_at: string;
   updated_at: string;
   expires_at: string | null;
+  can_write: number;
 };
 
 export type ShareStatus = {
   active: boolean;
   expired: boolean;
+  canWrite: boolean;
   token: string | null;
   url: string | null;
   createdAt: string | null;
@@ -41,6 +43,7 @@ export type PublicChat = {
   workspaceLabel: string | null;
   model: string;
   status: string;
+  canWrite: boolean;
   runs: PublicRun[];
 };
 
@@ -62,7 +65,7 @@ export function isShareExpired(expiresAt: string | null | undefined): boolean {
 }
 
 function emptyStatus(): ShareStatus {
-  return { active: false, expired: false, token: null, url: null, createdAt: null, expiresAt: null };
+  return { active: false, expired: false, canWrite: false, token: null, url: null, createdAt: null, expiresAt: null };
 }
 
 function toStatus(row: ShareRow | undefined): ShareStatus {
@@ -71,6 +74,7 @@ function toStatus(row: ShareRow | undefined): ShareStatus {
   return {
     active: !expired,
     expired,
+    canWrite: Number(row.can_write) === 1,
     token: row.token,
     url: shareUrl(row.token),
     createdAt: row.created_at,
@@ -120,7 +124,7 @@ export function getShareStatus(sessionId: string, userId: number): ShareStatus {
 export async function upsertShare(
   sessionId: string,
   userId: number,
-  input: { password?: string; expiresInDays?: number | null; rotateLink?: boolean },
+  input: { password?: string; expiresInDays?: number | null; rotateLink?: boolean; canWrite?: boolean },
 ): Promise<ShareStatus> {
   requireOwnedSession(sessionId, userId);
   const existing = getShareBySession(sessionId);
@@ -130,34 +134,44 @@ export async function upsertShare(
     const hash = await argon2.hash(input.password, { type: argon2.argon2id });
     const token = nanoid(32);
     const expiresAt = expiresFromDays(input.expiresInDays ?? null);
+    const canWrite = input.canWrite ? 1 : 0;
     getDb()
       .prepare(
-        `INSERT INTO chat_shares (session_id, token, password_hash, created_by_user_id, expires_at)
-         VALUES (?, ?, ?, ?, ?)`,
+        `INSERT INTO chat_shares (session_id, token, password_hash, created_by_user_id, expires_at, can_write)
+         VALUES (?, ?, ?, ?, ?, ?)`,
       )
-      .run(sessionId, token, hash, userId, expiresAt);
+      .run(sessionId, token, hash, userId, expiresAt, canWrite);
     return toStatus(getShareBySession(sessionId));
   }
 
   let token = existing.token;
   let hash = existing.password_hash;
   let expiresAt = existing.expires_at;
+  let canWrite = Number(existing.can_write) === 1 ? 1 : 0;
   let changed = false;
+  let invalidate = false;
 
   if (input.password) {
     hash = await argon2.hash(input.password, { type: argon2.argon2id });
     changed = true;
+    invalidate = true;
   }
   if (input.rotateLink) {
     token = nanoid(32);
     changed = true;
+    invalidate = true;
   }
   if (input.expiresInDays !== undefined) {
     const next = expiresFromDays(input.expiresInDays);
     if (next !== expiresAt) {
       expiresAt = next;
       changed = true;
+      invalidate = true;
     }
+  }
+  if (input.canWrite !== undefined && (input.canWrite ? 1 : 0) !== canWrite) {
+    canWrite = input.canWrite ? 1 : 0;
+    changed = true;
   }
 
   if (!changed) return toStatus(existing);
@@ -165,11 +179,11 @@ export async function upsertShare(
   getDb()
     .prepare(
       `UPDATE chat_shares
-       SET token = ?, password_hash = ?, expires_at = ?, updated_at = datetime('now')
+       SET token = ?, password_hash = ?, expires_at = ?, can_write = ?, updated_at = datetime('now')
        WHERE session_id = ?`,
     )
-    .run(token, hash, expiresAt, sessionId);
-  clearUnlocks(sessionId);
+    .run(token, hash, expiresAt, canWrite, sessionId);
+  if (invalidate) clearUnlocks(sessionId);
   return toStatus(getShareBySession(sessionId));
 }
 
@@ -225,7 +239,21 @@ function validUnlock(token: string, unlockId: string | undefined, sessionId: str
   return Boolean(token);
 }
 
-export function loadPublicChat(sessionId: string): PublicChat {
+function sessionOwnerId(sessionId: string): number {
+  const row = getDb()
+    .prepare('SELECT created_by_user_id FROM agent_sessions WHERE id = ?')
+    .get(sessionId) as { created_by_user_id: number } | undefined;
+  if (!row) throw new AppError('NOT_FOUND', 'Chat nicht gefunden.', 404);
+  return row.created_by_user_id;
+}
+
+function assertCanWrite(share: ShareRow): void {
+  if (Number(share.can_write) !== 1) {
+    throw new AppError('SHARE_READONLY', 'Dieser Chat ist nur zum Lesen freigegeben.', 403);
+  }
+}
+
+export function loadPublicChat(sessionId: string, canWrite: boolean): PublicChat {
   const session = getDb()
     .prepare('SELECT title, workspace_label, model, status FROM agent_sessions WHERE id = ?')
     .get(sessionId) as
@@ -243,6 +271,7 @@ export function loadPublicChat(sessionId: string): PublicChat {
     workspaceLabel: session.workspace_label,
     model: session.model,
     status: session.status,
+    canWrite,
     runs: runs.map((r) => ({
       id: r.id,
       prompt: r.prompt,
@@ -256,7 +285,7 @@ export function readShare(req: FastifyRequest, token: string): { locked: true } 
   const share = assertUsableShare(token);
   const unlocked = validUnlock(token, req.cookies[cookieName(token)], share.session_id);
   if (!unlocked) return { locked: true };
-  return { locked: false, chat: loadPublicChat(share.session_id) };
+  return { locked: false, chat: loadPublicChat(share.session_id, Number(share.can_write) === 1) };
 }
 
 export async function unlockShare(
@@ -293,7 +322,25 @@ export async function unlockShare(
     maxAge,
   });
 
-  return loadPublicChat(share.session_id);
+  return loadPublicChat(share.session_id, Number(share.can_write) === 1);
+}
+
+export async function sendSharedPrompt(req: FastifyRequest, token: string, prompt: string): Promise<PublicChat> {
+  const share = requireUnlockedShare(req, token);
+  assertCanWrite(share);
+  await sendPrompt(share.session_id, prompt, sessionOwnerId(share.session_id));
+  return loadPublicChat(share.session_id, true);
+}
+
+export async function cancelSharedRun(req: FastifyRequest, token: string, runId: string): Promise<PublicChat> {
+  const share = requireUnlockedShare(req, token);
+  assertCanWrite(share);
+  const run = getDb().prepare('SELECT session_id FROM agent_runs WHERE id = ?').get(runId) as
+    | { session_id: string }
+    | undefined;
+  if (!run || run.session_id !== share.session_id) throw new AppError('NOT_FOUND', 'Run nicht gefunden.', 404);
+  await cancelRun(runId, sessionOwnerId(share.session_id));
+  return loadPublicChat(share.session_id, true);
 }
 
 export function requireUnlockedShare(req: FastifyRequest, token: string): ShareRow {

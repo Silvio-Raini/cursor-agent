@@ -4,6 +4,7 @@ import { api } from '../lib/api';
 type ShareInfo = {
   active: boolean;
   expired: boolean;
+  canWrite: boolean;
   token: string | null;
   url: string | null;
   createdAt: string | null;
@@ -32,6 +33,7 @@ export function ShareDialog({
   const [password, setPassword] = useState('');
   const [passwordAgain, setPasswordAgain] = useState('');
   const [expiry, setExpiry] = useState<ExpiryChoice>('none');
+  const [canWrite, setCanWrite] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -46,6 +48,7 @@ export function ShareDialog({
         if (cancelled) return;
         setInfo(data);
         setExpiry(data.token ? 'keep' : 'none');
+        setCanWrite(Boolean(data.canWrite));
       })
       .catch((err: unknown) => {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Freigabe konnte nicht geladen werden.');
@@ -68,13 +71,16 @@ export function ShareDialog({
       setError('Passwörter stimmen nicht überein.');
       return;
     }
-    if (!creating && !password && !rotateLink && expiry === 'keep') {
+    const accessChanged = Boolean(info?.canWrite) !== canWrite;
+    if (!creating && !password && !rotateLink && expiry === 'keep' && !accessChanged) {
       setNotice('Nichts geändert.');
       return;
     }
     setBusy(true);
     try {
-      const body: { password?: string; expiresInDays?: number | null; rotateLink?: boolean } = {};
+      const body: { password?: string; expiresInDays?: number | null; rotateLink?: boolean; canWrite: boolean } = {
+        canWrite,
+      };
       if (password) body.password = password;
       if (rotateLink) body.rotateLink = true;
       if (expiry !== 'keep') body.expiresInDays = expiry === 'none' ? null : Number(expiry);
@@ -86,6 +92,7 @@ export function ShareDialog({
       setPassword('');
       setPasswordAgain('');
       setExpiry('keep');
+      setCanWrite(Boolean(next.canWrite));
       setNotice(rotateLink ? 'Neuer Link ist aktiv. Der alte funktioniert nicht mehr.' : 'Freigabe gespeichert.');
       onChanged();
     } catch (err) {
@@ -125,7 +132,10 @@ export function ShareDialog({
       <div className="modal share-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-labelledby="share-title">
         <h2 id="share-title">Chat teilen</h2>
         <p className="field-hint share-lead">
-          Wer Link und Passwort hat, kann diesen Chat lesen — inklusive Tool-Ausgaben. Schreiben ist nicht möglich.
+          Wer Link und Passwort hat, sieht diesen Chat inklusive Tool-Ausgaben.
+          {canWrite
+            ? ' Schreiben ist erlaubt: Nachrichten laufen über deinen Agent auf diesem Server.'
+            : ' Schreiben ist aus. Das kannst du später hier ändern.'}
         </p>
 
         {!info ? (
@@ -172,6 +182,13 @@ export function ShareDialog({
                 autoComplete="new-password"
                 required={Boolean(password) || !info.token}
               />
+            </label>
+            <label>
+              Zugriff
+              <select value={canWrite ? 'write' : 'read'} onChange={(e) => setCanWrite(e.target.value === 'write')}>
+                <option value="read">Nur lesen</option>
+                <option value="write">Lesen und schreiben</option>
+              </select>
             </label>
             <label>
               Ablauf
