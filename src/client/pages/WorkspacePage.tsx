@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { DevShell } from '../components/DevShell';
 import { MobileMenu } from '../components/MobileMenu';
 import { RunThread } from '../components/RunThread';
+import { ShareDialog } from '../components/ShareDialog';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useMediaQuery } from '../lib/useMediaQuery';
@@ -16,6 +17,7 @@ type Session = {
   status: string;
   updatedAt: string;
   lastRunAt: string | null;
+  shared?: boolean;
 };
 
 type Run = {
@@ -49,6 +51,7 @@ export function WorkspacePage() {
   const [prompt, setPrompt] = useState('');
   const [busy, setBusy] = useState(false);
   const [showNew, setShowNew] = useState(false);
+  const [showShare, setShowShare] = useState(false);
   const [newCwd, setNewCwd] = useState('');
   const [newModel, setNewModel] = useState('');
   const [newPrompt, setNewPrompt] = useState('');
@@ -247,7 +250,10 @@ export function WorkspacePage() {
                 >
                   <button type="button" className="session-item" onClick={() => selectSession(s.id)}>
                     <span className="session-title">{s.title}</span>
-                    <span className="session-meta">{projectLabel(s.cwd, s.workspaceLabel)}</span>
+                    <span className="session-meta">
+                      {projectLabel(s.cwd, s.workspaceLabel)}
+                      {s.shared ? ' · geteilt' : ''}
+                    </span>
                     <span className={`status-dot ${s.status}`} />
                   </button>
                   <button
@@ -283,23 +289,31 @@ export function WorkspacePage() {
                 Chats
               </button>
             )}
-            <div className="chat-shell-title">
-              <h2>{selected?.title || 'Chat wählen'}</h2>
+            <div className="chat-shell-head-row">
+              <div className="chat-shell-title">
+                <h2>{selected?.title || 'Chat wählen'}</h2>
+                {selected && (
+                  <div className="chat-shell-meta">
+                    <span className="cwd-badge" title={selected.cwd}>
+                      {projectLabel(selected.cwd, selected.workspaceLabel)}
+                    </span>
+                    <span className={`pill status-${sessionBusy ? 'running' : selected.status}`}>
+                      {sessionBusy
+                        ? queuedCount > 0
+                          ? `läuft · ${queuedCount} in Queue`
+                          : 'läuft'
+                        : selected.status === 'idle' || selected.status === 'finished'
+                          ? 'bereit'
+                          : selected.status}
+                    </span>
+                    {selected.shared && <span className="pill">geteilt</span>}
+                  </div>
+                )}
+              </div>
               {selected && (
-                <div className="chat-shell-meta">
-                  <span className="cwd-badge" title={selected.cwd}>
-                    {projectLabel(selected.cwd, selected.workspaceLabel)}
-                  </span>
-                  <span className={`pill status-${sessionBusy ? 'running' : selected.status}`}>
-                    {sessionBusy
-                      ? queuedCount > 0
-                        ? `läuft · ${queuedCount} in Queue`
-                        : 'läuft'
-                      : selected.status === 'idle' || selected.status === 'finished'
-                        ? 'bereit'
-                        : selected.status}
-                  </span>
-                </div>
+                <button type="button" className="tool-btn share-open-btn" onClick={() => setShowShare(true)}>
+                  {selected.shared ? 'Geteilt' : 'Teilen'}
+                </button>
               )}
             </div>
           </div>
@@ -379,6 +393,14 @@ export function WorkspacePage() {
           )}
         </section>
       </div>
+
+      {showShare && selected && (
+        <ShareDialog
+          sessionId={selected.id}
+          onClose={() => setShowShare(false)}
+          onChanged={() => void load()}
+        />
+      )}
 
       {showNew && (
         <div className="modal-backdrop" onClick={() => setShowNew(false)}>

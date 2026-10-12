@@ -10,6 +10,7 @@ import { toPublicError } from './util/errors.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerSettingsRoutes } from './routes/settings.js';
 import { registerAgentRoutes } from './routes/agents.js';
+import { registerShareRoutes } from './routes/shares.js';
 import { resumeQueuesOnStartup } from './services/agents.js';
 
 async function main(): Promise<void> {
@@ -62,6 +63,7 @@ async function main(): Promise<void> {
   await registerAuthRoutes(app);
   await registerSettingsRoutes(app);
   await registerAgentRoutes(app);
+  await registerShareRoutes(app);
 
   if (fs.existsSync(env.FRONTEND_DIST)) {
     await app.register(fastifyStatic, { root: env.FRONTEND_DIST, wildcard: false });

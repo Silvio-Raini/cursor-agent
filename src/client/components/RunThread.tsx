@@ -44,13 +44,21 @@ export function RunThread({
   live,
   isFirst,
   onCancelQueued,
+  eventsUrl,
+  streamUrl,
 }: {
   run: Run;
   live: boolean;
   isFirst?: boolean;
   onCancelQueued?: () => void;
+  eventsUrl?: string;
+  streamUrl?: string;
 }) {
-  const { timeline } = useRunTimeline(run.id, live);
+  const { timeline } = useRunTimeline(
+    run.id,
+    live,
+    eventsUrl && streamUrl ? { eventsUrl, streamUrl } : undefined,
+  );
   const endRef = useRef<HTMLDivElement>(null);
   const queued = run.status === 'queued';
 

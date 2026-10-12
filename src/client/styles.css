@@ -258,6 +258,28 @@ a { color: inherit; text-decoration: none; }
   padding: 0.65rem 1rem; border-bottom: 1px solid var(--line);
   flex-shrink: 0;
 }
+.chat-shell-head-row {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 0.6rem;
+}
+.share-open-btn { flex-shrink: 0; min-height: 36px; }
+.tool-btn.danger {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--line));
+}
+.tool-btn.danger:hover:not(:disabled) { background: var(--danger-soft); }
+.share-lead { margin: 0 0 0.9rem; }
+.share-link-row { display: flex; gap: 0.4rem; align-items: center; }
+.share-link-row input {
+  flex: 1; min-width: 0; font-family: var(--mono); font-size: 0.75rem;
+}
+.share-modal .modal-actions { flex-wrap: wrap; }
+.share-modal .modal-actions .danger { margin-right: auto; }
+.share-shell { flex: 1; min-height: 0; }
+.share-readonly {
+  flex-shrink: 0; padding: 0.7rem 1rem;
+  border-top: 1px solid var(--line);
+  color: var(--muted); font-size: 0.8rem; text-align: center;
+}
 .chat-shell-title {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
 }
@@ -1093,6 +1115,24 @@ a { color: inherit; text-decoration: none; }
   .chat-shell-head {
     padding: 0.5rem 0.75rem 0.55rem;
     flex-shrink: 0;
+  }
+
+  .chat-shell-head-row {
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .share-open-btn {
+    min-height: 40px;
+  }
+
+  .share-link-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .share-link-row .tool-btn {
+    min-height: 44px;
   }
 
   .chat-shell-title {

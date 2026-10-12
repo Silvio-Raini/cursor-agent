@@ -5,12 +5,18 @@ import { parseStoredEvents, reduceEventsToTimeline, type TimelineItem } from '..
 
 type StoredEvent = { seq: number; type: string; payload: Record<string, unknown> };
 
-export function useRunTimeline(runId: string | null, live: boolean) {
+export function useRunTimeline(
+  runId: string | null,
+  live: boolean,
+  source?: { eventsUrl: string; streamUrl: string },
+) {
   const [events, setEvents] = useState<AgentStreamEvent[]>([]);
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
+  const eventsUrl = source?.eventsUrl ?? (runId ? `/api/agents/runs/${runId}/events` : '');
+  const streamUrl = source?.streamUrl ?? (runId ? `/api/agents/runs/${runId}/stream` : '');
 
   useEffect(() => {
-    if (!runId) {
+    if (!runId || !eventsUrl) {
       setEvents([]);
       setTimeline([]);
       return;
@@ -20,7 +26,7 @@ export function useRunTimeline(runId: string | null, live: boolean) {
 
     async function loadHistory() {
       try {
-        const rows = await api<StoredEvent[]>(`/api/agents/runs/${runId}/events`);
+        const rows = await api<StoredEvent[]>(eventsUrl);
         if (closed) return;
         const parsed = parseStoredEvents(rows);
         setEvents(parsed);
@@ -32,13 +38,13 @@ export function useRunTimeline(runId: string | null, live: boolean) {
 
     void loadHistory();
 
-    if (!live) {
+    if (!live || !streamUrl) {
       return () => {
         closed = true;
       };
     }
 
-    const es = new EventSource(`/api/agents/runs/${runId}/stream`, { withCredentials: true });
+    const es = new EventSource(streamUrl, { withCredentials: true });
     es.onmessage = (msg) => {
       try {
         const ev = JSON.parse(msg.data) as AgentStreamEvent & { seq?: number };
@@ -62,7 +68,7 @@ export function useRunTimeline(runId: string | null, live: boolean) {
       closed = true;
       es.close();
     };
-  }, [runId, live]);
+  }, [runId, live, eventsUrl, streamUrl]);
 
   return { timeline };
 }

@@ -153,11 +153,28 @@ function claimNextQueuedRun(sessionId: string): { run: Record<string, unknown>; 
   return claim(sessionId);
 }
 
-export function listSessions(userId: number): SessionRecord[] {
+function shareIsActive(expiresAt: unknown, hasShare: boolean): boolean {
+  if (!hasShare) return false;
+  if (!expiresAt) return true;
+  const ts = new Date(String(expiresAt)).getTime();
+  return Number.isFinite(ts) && ts > Date.now();
+}
+
+export function listSessions(userId: number): Array<SessionRecord & { shared: boolean }> {
   const rows = getDb()
-    .prepare('SELECT * FROM agent_sessions WHERE created_by_user_id = ? ORDER BY updated_at DESC LIMIT 100')
+    .prepare(
+      `SELECT s.*, sh.session_id AS share_session_id, sh.expires_at AS share_expires_at
+       FROM agent_sessions s
+       LEFT JOIN chat_shares sh ON sh.session_id = s.id
+       WHERE s.created_by_user_id = ?
+       ORDER BY s.updated_at DESC
+       LIMIT 100`,
+    )
     .all(userId) as Record<string, unknown>[];
-  return rows.map(mapSession);
+  return rows.map((row) => ({
+    ...mapSession(row),
+    shared: shareIsActive(row.share_expires_at, Boolean(row.share_session_id)),
+  }));
 }
 
 export function getSession(id: string, userId: number): SessionRecord {

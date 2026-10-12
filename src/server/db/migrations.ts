@@ -97,6 +97,31 @@ export const migrations: Migration[] = [
       `);
     },
   },
+  {
+    id: '003_chat_shares',
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS chat_shares (
+          session_id TEXT PRIMARY KEY REFERENCES agent_sessions(id) ON DELETE CASCADE ON UPDATE CASCADE,
+          token TEXT NOT NULL UNIQUE,
+          password_hash TEXT NOT NULL,
+          created_by_user_id INTEGER NOT NULL REFERENCES users(id),
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+          expires_at TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS share_unlocks (
+          id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL REFERENCES chat_shares(session_id) ON DELETE CASCADE ON UPDATE CASCADE,
+          expires_at TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_share_unlocks_session ON share_unlocks(session_id);
+      `);
+    },
+  },
 ];
 
 /** Beispiel-Hilfen für künftige Migrationen (Spalten/Tabellen nur ergänzen). */
